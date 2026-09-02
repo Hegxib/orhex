@@ -1,0 +1,25 @@
+# Build output
+orhex.exe
+*.pdb
+*.cache
+
+# User cache
+*.dat
+queue.dat
+discord_games_v3.dat
+discord_quests.dat
+
+# OS
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# Temp
+*.tmp
+*.log
+C:\Users\gback\AppData\Local\Temp\opencode\
+
+# Secrets / certs
+build/orhex.pfx
+*.pfx
+*.key
