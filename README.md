@@ -77,6 +77,10 @@ Orhex makes **no silent network calls** except:
 
 About dialog (`MenuBuilder.ShowAbout`) lists all of the above.
 
+### Antivirus
+
+VirusTotal results are false positives. You can analyze the code yourself or with the help of a professional.
+
 ### Building
 
 Single-file `winexe` via `csc.exe` — no NuGet, no external libs:
