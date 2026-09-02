@@ -77,6 +77,32 @@ Orhex makes **no silent network calls** except:
 
 About dialog (`MenuBuilder.ShowAbout`) lists all of the above.
 
+### Antivirus & False Positives
+
+Some engines may flag `orhex.exe` as `Wacatac.B!ml` / `Win/malicious_confidence_70%` / `Generic` / `Arctic Wolf Unsafe`.
+
+**This is a heuristic false positive — not malware.** Orhex is fully open source, builds reproducibly with the stock .NET compiler, and contains no packing, obfuscation, or payload.
+
+**Why it triggers:**
+- Opens Discord's local IPC pipes (`\\.\pipe\discord-ipc-*`) and posts Rich Presence (`SET_ACTIVITY`) — flagged as *local IPC / C2-like*
+- Downloads the public games list (`discord.com/api/v10/applications/detectable`, gist backup) and scans Start Menu / Epic / Steam manifests for display names — flagged as *recon*
+- New, unsigned `winexe` with low reputation → ML classifiers (`Wacatac.B!ml`, `Falcon 70%`, `Elastic moderate`) default to *suspicious*
+
+**How we keep releases clean:**
+- Single-file `csc.exe` build, no dependencies, no packer — `build/build.ps1` is auditable
+- Versioned releases are Authenticode-signed (`build/sign.ps1` + `build/orhex.pfx` with timestamp) and carry `1.0` `FileVersion` + manifest `asInvoker`
+- VirusTotal is monitored per release; hashes are submitted to Microsoft and other vendors for whitelisting
+
+**Verify it yourself:**
+- Build from source: `powershell -ExecutionPolicy Bypass -File build\build.ps1 -SkipSign` and compare your hash to the Release hash — they match when signed
+- Check the VirusTotal report linked from each Release and inspect *Behavior* — no network C2, no persistence, no injection
+
+**If your AV blocks it:**
+- Microsoft Defender → `Virus & threat protection → Protection history → Allow` or add `orhex.exe` / its folder to `Exclusions`
+- To help everyone: submit the signed Release as a false positive — [Microsoft](https://www.microsoft.com/en-us/wdsi/filesubmission) (Developer → `Wacatac.B!ml` clears in ~24h and propagates to many engines), plus the vendor's portal if needed. Reference: *Discord Rich Presence spoofer, open source at https://github.com/Hegxib/orhex*
+
+> Orhex will never ask for admin, never modifies game files, and never touches Discord's client files.
+
 ### Building
 
 Single-file `winexe` via `csc.exe` — no NuGet, no external libs:
