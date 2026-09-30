@@ -442,6 +442,110 @@ namespace Orhex
         private const string DetectableUrl =
             "https://discord.com/api/v10/applications/detectable";
 
+        private const string ExclusionsUrl =
+            "https://discord.com/api/v10/games/detectable/exclusions";
+
+        private static readonly HashSet<string> excludedExes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly List<Regex> excludedPatterns = new List<Regex>();
+
+        private static string ExclusionsCachePath
+        {
+            get
+            {
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Orhex");
+                return Path.Combine(dir, "discord_exclusions.dat");
+            }
+        }
+
+        public static bool IsExcludedExe(string file)
+        {
+            if (string.IsNullOrEmpty(file)) return false;
+            if (excludedExes.Contains(file)) return true;
+            string f = file.ToLowerInvariant();
+            foreach (Regex re in excludedPatterns)
+            {
+                try { if (re.IsMatch(f)) return true; }
+                catch { }
+            }
+            return false;
+        }
+
+        private static void LoadExclusionsCache()
+        {
+            try
+            {
+                excludedExes.Clear();
+                excludedPatterns.Clear();
+                if (!File.Exists(ExclusionsCachePath)) return;
+                foreach (string line in File.ReadAllLines(ExclusionsCachePath, Encoding.UTF8))
+                {
+                    string t = line.Trim();
+                    if (t.Length == 0) continue;
+                    if (t.StartsWith("re:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string pat = t.Substring(3);
+                        if (pat.Length > 0)
+                        {
+                            try { excludedPatterns.Add(new Regex(pat, RegexOptions.IgnoreCase | RegexOptions.Compiled)); }
+                            catch { }
+                        }
+                    }
+                    else excludedExes.Add(t);
+                }
+            }
+            catch { }
+        }
+
+        private static bool FetchExclusions()
+        {
+            try
+            {
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+                var wc = new WebClient();
+                wc.Headers[HttpRequestHeader.UserAgent] =
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+                wc.Headers[HttpRequestHeader.Accept] = "application/json";
+                wc.Headers["Referer"] = "https://discord.com/";
+                wc.Headers["Origin"] = "https://discord.com";
+                string json = wc.DownloadString(ExclusionsUrl);
+                if (string.IsNullOrEmpty(json)) return false;
+                var root = Json.Parse(json) as Dictionary<string, object>;
+                if (root == null) return false;
+                var exes = new List<string>();
+                var pats = new List<string>();
+                foreach (object e in Json.GetList(root, "executables"))
+                {
+                    string s = Convert.ToString(e, CultureInfo.InvariantCulture);
+                    if (!string.IsNullOrEmpty(s)) exes.Add(s.Trim());
+                }
+                foreach (object p in Json.GetList(root, "patterns"))
+                {
+                    string s = Convert.ToString(p, CultureInfo.InvariantCulture);
+                    if (!string.IsNullOrEmpty(s)) pats.Add(s.Trim());
+                }
+                if (exes.Count == 0 && pats.Count == 0) return false;
+                excludedExes.Clear();
+                excludedPatterns.Clear();
+                foreach (string s in exes) excludedExes.Add(s);
+                foreach (string s in pats)
+                {
+                    try { excludedPatterns.Add(new Regex(s, RegexOptions.IgnoreCase | RegexOptions.Compiled)); }
+                    catch { }
+                }
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(ExclusionsCachePath));
+                    var sb = new StringBuilder();
+                    foreach (string s in exes) { sb.Append(s); sb.Append('\n'); }
+                    foreach (string s in pats) { sb.Append("re:"); sb.Append(s); sb.Append('\n'); }
+                    File.WriteAllText(ExclusionsCachePath, sb.ToString(), Encoding.UTF8);
+                }
+                catch { }
+                return true;
+            }
+            catch { return false; }
+        }
+
         private static string DownloadJson()
         {
             try
@@ -482,6 +586,8 @@ namespace Orhex
                 bool ok = false;
                 try
                 {
+                    try { FetchExclusions(); }
+                    catch { }
                     string json = DownloadJson();
                     ok = json != null && BuildFromJson(json);
                 }
@@ -501,6 +607,7 @@ namespace Orhex
             {
                 if (File.Exists(CachePath))
                 {
+                    LoadExclusionsCache();
                     LoadCache();
                     loaded = true;
                     return true;
@@ -519,6 +626,8 @@ namespace Orhex
                 bool ok = false;
                 try
                 {
+                    try { FetchExclusions(); }
+                    catch { }
                     string json = DownloadJson();
                     ok = json != null && BuildFromJson(json);
                 }
@@ -669,6 +778,24 @@ namespace Orhex
             return g.AppId;
         }
 
+        public static List<string> GetExtraExes(DiscordGame g)
+        {
+            var result = new List<string>();
+            if (g == null || g.Exes == null) return result;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrEmpty(g.Exe)) seen.Add(g.Exe);
+            foreach (string e in g.Exes)
+            {
+                if (string.IsNullOrEmpty(e)) continue;
+                if (!seen.Add(e)) continue;
+                if (IsJunkExe(e)) continue;
+                if (IsExcludedExe(e)) continue;
+                result.Add(e);
+                if (result.Count >= 6) break;
+            }
+            return result;
+        }
+
         public static DiscordGame FindGame(string nameOrExe)
         {
             if (!loaded || games == null) return null;
@@ -682,6 +809,7 @@ namespace Orhex
             {
                 foreach (string e in g.Exes)
                 {
+                    if (IsExcludedExe(e)) continue;
                     if (e.Equals(qexe, StringComparison.OrdinalIgnoreCase) && best < 100)
                     {
                         best = 100;
@@ -776,7 +904,7 @@ namespace Orhex
             return sb.ToString();
         }
 
-        private static bool IsJunkExe(string file)
+        public static bool IsJunkExe(string file)
         {
             string f = file.ToLowerInvariant();
             string[] words = new string[]
@@ -787,7 +915,7 @@ namespace Orhex
                 "service", "scanner", "tool", "bridge", "proxy", "backend", "handler",
                 "rageplugin", "scripthook", "fivem", "configurator", "reloader", "injector",
                 "cheat", "sdk", "editor", "battleye", "_be", "_eac", "eac", "overlay", "server",
-                "update", "install"
+                "update", "install", "start_protected_game", "protected_game"
             };
             foreach (string w in words)
                 if (f.Contains(w))
@@ -807,6 +935,7 @@ namespace Orhex
                 int score = 0;
                 if (extra != null && extra.ContainsKey(e)) score += extra[e];
                 if (IsJunkExe(e)) score += 50;
+                if (IsExcludedExe(e)) score += 1000;
                 string stem = e.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                     ? e.Substring(0, e.Length - 4) : e;
                 string eslug = Slug(stem);

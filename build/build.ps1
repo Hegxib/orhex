@@ -19,6 +19,7 @@ $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
     (Join-Path $root "Orhex.cs") `
     (Join-Path $root "GameResolve.cs") `
     (Join-Path $root "DiscordRpc.cs") `
+    (Join-Path $root "SteamQuest.cs") `
     (Join-Path $PSScriptRoot "AssemblyInfo.cs")
 if (-not $?) { throw "Compile failed" }
 

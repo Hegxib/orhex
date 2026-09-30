@@ -51,6 +51,13 @@ namespace Orhex
             OwnExe = Process.GetCurrentProcess().MainModule.FileName;
             LoadIcon();
 
+            string holdArg = GetArg(args, "hold");
+            if (holdArg != null)
+            {
+                RunHolder(holdArg);
+                return;
+            }
+
             DiscordDb.RefreshSilently();
 
             string queueArg = GetArg(args, "queue");
@@ -75,6 +82,32 @@ namespace Orhex
                 if (args[i] == "--" + key)
                     return args[i + 1];
             return null;
+        }
+
+        private static void RunHolder(string holdArg)
+        {
+            Mutex hm = null;
+            try
+            {
+                List<QueueItem> hitems = ParseQueue(holdArg);
+                if (hitems.Count == 0) return;
+                QueueItem hq = hitems[0];
+                bool created;
+                hm = new Mutex(true, "Orhex_" + hq.EffectiveExe.ToLowerInvariant(), out created);
+                if (!created) return;
+                int secs = hq.DurationSeconds;
+                if (secs <= 0) Thread.Sleep(Timeout.Infinite);
+                else Thread.Sleep(Math.Min(secs, 604800) * 1000);
+            }
+            catch { }
+            finally
+            {
+                if (hm != null)
+                {
+                    try { hm.ReleaseMutex(); } catch { }
+                    hm.Close();
+                }
+            }
         }
 
         private static void LoadIcon()
@@ -104,18 +137,23 @@ namespace Orhex
                 string[] f = part.Split('|');
                 if (f.Length < 2) continue;
                 string name = f[0].Trim();
-                int raw = 0;
-                int.TryParse(f[1], out raw);
                 int duration = 0;
-                if (f[1].Contains(":"))
+                string ds = f[1].Trim();
+                if (ds.Length > 1 && (ds[0] == 's' || ds[0] == 'S'))
                 {
-                    string[] tp = f[1].Split(':');
+                    int.TryParse(ds.Substring(1), out duration);
+                }
+                else if (ds.Contains(":"))
+                {
+                    string[] tp = ds.Split(':');
                     int m = 0, sec = 0;
                     if (tp.Length == 2) { int.TryParse(tp[0], out m); int.TryParse(tp[1], out sec); duration = m * 60 + sec; }
                     else if (tp.Length == 3) { int h = 0; int.TryParse(tp[0], out h); int.TryParse(tp[1], out m); int.TryParse(tp[2], out sec); duration = h * 3600 + m * 60 + sec; }
                 }
                 else
                 {
+                    int raw = 0;
+                    int.TryParse(ds, out raw);
                     if (raw > 0 && raw < 500) duration = raw * 60;
                     else duration = raw;
                 }
@@ -135,6 +173,7 @@ namespace Orhex
                 if (sb.Length > 0) sb.Append(';');
                 sb.Append(it.Name.Replace("|", "-").Replace(";", "-"));
                 sb.Append('|');
+                sb.Append('s');
                 sb.Append(it.DurationSeconds);
                 sb.Append('|');
                 sb.Append(it.Exe ?? "");
@@ -161,6 +200,83 @@ namespace Orhex
             string folder = Path.Combine(Path.GetTempPath(), "Orhex");
             Directory.CreateDirectory(folder);
             LaunchAs(Path.Combine(folder, exe), queueArg, index);
+        }
+
+        public static void SpawnAs(string exe, string queueArg, int index)
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Orhex");
+            Directory.CreateDirectory(folder);
+            string target = Path.Combine(folder, exe);
+            string self = Program.OwnExe;
+            if (!string.Equals(self, target, StringComparison.OrdinalIgnoreCase))
+            {
+                bool copied = false;
+                for (int i = 0; i < 5 && !copied; i++)
+                {
+                    try { File.Copy(self, target, true); copied = true; }
+                    catch (IOException) { Thread.Sleep(300); }
+                }
+                if (!copied)
+                    throw new IOException("The fake game file is still in use. Close the other window and try again.");
+            }
+            string args = "--queue \"" + queueArg + "\" --index " + index;
+            var psi = new ProcessStartInfo { FileName = target, Arguments = args, UseShellExecute = true };
+            Process.Start(psi);
+        }
+
+        public static void SpawnHidden(string exe, string queueArg)
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Orhex");
+            Directory.CreateDirectory(folder);
+            string target = Path.Combine(folder, exe);
+            string self = Program.OwnExe;
+            if (!string.Equals(self, target, StringComparison.OrdinalIgnoreCase))
+            {
+                bool copied = false;
+                for (int i = 0; i < 5 && !copied; i++)
+                {
+                    try { File.Copy(self, target, true); copied = true; }
+                    catch (IOException) { Thread.Sleep(300); }
+                }
+                if (!copied) return;
+            }
+            string args = "--hold \"" + queueArg + "\"";
+            var psi = new ProcessStartInfo
+            {
+                FileName = target,
+                Arguments = args,
+                UseShellExecute = true,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            try { Process.Start(psi); }
+            catch { }
+        }
+
+        public static void LaunchNoExit(string target, string queueArg, int index)
+        {
+            string args = "--queue \"" + queueArg + "\" --index " + index;
+            var psi = new ProcessStartInfo { FileName = target, Arguments = args, UseShellExecute = true };
+            Process.Start(psi);
+        }
+
+        public static bool IsAlreadyRunning(string exe)
+        {
+            Mutex m = null;
+            try
+            {
+                bool created;
+                m = new Mutex(true, "Orhex_" + exe.ToLowerInvariant(), out created);
+                if (!created) return true;
+                try { m.ReleaseMutex(); }
+                catch { }
+                return false;
+            }
+            catch { return false; }
+            finally
+            {
+                if (m != null) m.Close();
+            }
         }
 
         public static void LaunchAs(string target, string queueArg, int index)
@@ -310,6 +426,7 @@ namespace Orhex
                 "• No game files are modified\r\n\r\n" +
                 "Connections:\r\n" +
                 "• discord.com/api/v10/applications/detectable — detectable games list\r\n" +
+                "• discord.com/api/v10/games/detectable/exclusions — exes Discord ignores\r\n" +
                 "• gist.githubusercontent.com/.../gameslist.json — backup mirror\r\n" +
                 "• store.steampowered.com/api/storesearch — Steam search (fallback)\r\n" +
                 "• \\\\.\\pipe\\discord-ipc-* — local Rich Presence only\r\n",
@@ -395,6 +512,7 @@ namespace Orhex
         private readonly Label status = new Label();
         private readonly List<QueueItem> items = new List<QueueItem>();
         private NotifyIcon tray;
+        private string lastSearchedText = null;
 
         public MainForm()
         {
@@ -421,7 +539,7 @@ namespace Orhex
             y += 30;
             Label sub = new Label
             {
-                Text = "Spoof your Discord presence in seconds.",
+                Text = "Spoof your Discord presence in seconds.  Enter = search, Enter again = add. Custom names OK.",
                 AutoSize = true,
                 Location = new Point(20, y),
                 Font = new Font("Segoe UI", 8.25f),
@@ -512,6 +630,12 @@ namespace Orhex
 
             Controls.AddRange(new Control[] { title, sub, nl, nameBox, timeLabel, minutesBox, mLabel, secondsBox, sLabel, searchBtn, el, exeBox, sourceLabel, addBtn, removeBtn, clearBtn, upBtn, downBtn, queueHint, queueList, startBtn, status });
 
+            // Enter flow: first Enter searches, second Enter adds to queue + clears.
+            nameBox.KeyDown += EnterKeyDown;
+            exeBox.KeyDown += EnterKeyDown;
+            minutesBox.KeyDown += EnterKeyDown;
+            secondsBox.KeyDown += EnterKeyDown;
+
             ToolStripMenuItem dbUpdate = new ToolStripMenuItem("Update game database");
             dbUpdate.Click += delegate
             {
@@ -541,6 +665,44 @@ namespace Orhex
             };
 
             LoadSavedQueue();
+            CleanupStaleTempCopies();
+        }
+
+        private void CleanupStaleTempCopies()
+        {
+            try
+            {
+                string tempRoot = Path.Combine(Path.GetTempPath(), "Orhex");
+                if (Directory.Exists(tempRoot))
+                {
+                    foreach (string f in Directory.GetFiles(tempRoot, "*.exe"))
+                    {
+                        try { File.Delete(f); }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            try
+            {
+                if (!File.Exists(SteamFakesFile)) return;
+                var kept = new List<string>();
+                foreach (string line in File.ReadAllLines(SteamFakesFile))
+                {
+                    string t = line.Trim();
+                    if (t.Length == 0) continue;
+                    bool gone = false;
+                    try
+                    {
+                        if (File.Exists(t)) File.Delete(t);
+                        gone = true;
+                    }
+                    catch { }
+                    if (!gone) kept.Add(t);
+                }
+                File.WriteAllLines(SteamFakesFile, kept.ToArray());
+            }
+            catch { }
         }
 
         private void MoveItem(int dir)
@@ -608,14 +770,14 @@ namespace Orhex
             return total;
         }
 
-        private void AddItem()
+        private bool AddItem()
         {
             string name = nameBox.Text.Trim();
             if (name.Length == 0)
             {
                 status.ForeColor = Color.Red;
                 status.Text = "Type a game name first.";
-                return;
+                return false;
             }
             int duration = GetDurationSeconds();
             string exe = exeBox.Text.Trim();
@@ -635,6 +797,53 @@ namespace Orhex
             nameBox.Focus();
             status.ForeColor = Color.Gray;
             status.Text = "";
+            return true;
+        }
+
+        // First Enter = search, second Enter = add to queue + clear the boxes.
+        // Custom names are allowed: whatever is typed is kept as the display
+        // name (queue list + mimic window title), exe is only used for detection.
+        private void EnterKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                e.Handled = true;
+                OnEnterPressed();
+            }
+        }
+
+        private void OnEnterPressed()
+        {
+            string name = nameBox.Text.Trim();
+            if (name.Length == 0)
+            {
+                status.ForeColor = Color.Red;
+                status.Text = "Type a game name first.";
+                return;
+            }
+            bool searchedAlready = lastSearchedText != null &&
+                string.Equals(lastSearchedText.Trim(), name, StringComparison.OrdinalIgnoreCase);
+            if (!searchedAlready)
+            {
+                Search();
+                return;
+            }
+            // Same text as the last search (exe resolved, or nothing found for a
+            // custom name) -> add it and clear the boxes for the next entry.
+            if (AddItem())
+                ClearEntryBoxes(name);
+        }
+
+        private void ClearEntryBoxes(string addedName)
+        {
+            nameBox.Text = "";
+            exeBox.Text = "";
+            sourceLabel.Text = "";
+            lastSearchedText = null;
+            status.ForeColor = Color.Gray;
+            status.Text = "Added \"" + addedName + "\" — type the next game.";
+            nameBox.Focus();
         }
 
         private void RemoveItem()
@@ -662,6 +871,7 @@ namespace Orhex
                 status.Text = "Type a game name first.";
                 return;
             }
+            lastSearchedText = query;
             if (!DiscordDb.IsLoaded)
             {
                 if (!DiscordDb.EnsureLoaded())
@@ -710,10 +920,18 @@ namespace Orhex
             List<string[]> disc = DiscordDb.Search(query);
             if (disc.Count > 0)
             {
-                FillExe(disc[0]);
-                string appId = DiscordDb.FindApplicationId(disc[0][0]);
+                string[] pick = disc[0];
+                if (disc.Count > 1)
+                {
+                    pick = ListPickerDialog.Show(disc, "Select the Discord game", this);
+                    if (pick == null) return;
+                }
+                FillExe(pick);
+                string appId = DiscordDb.FindApplicationId(pick[0]);
                 status.ForeColor = Color.Green;
-                status.Text = "Found in Discord's game list: " + disc[0][0] + (appId != null ? "  (app id " + appId + ")" : "") + " — will run as " + exeBox.Text;
+                status.Text = "Found in Discord's game list: " + pick[0]
+                    + (appId != null ? "  (app id " + appId + ")" : "")
+                    + " — will run as " + exeBox.Text;
                 return;
             }
             status.ForeColor = Color.Gray;
@@ -726,10 +944,18 @@ namespace Orhex
                 {
                     this.BeginInvoke(new Action(delegate()
                     {
+                        // Skip if the user already queued/cleared this entry.
+                        if (!string.Equals(nameBox.Text.Trim(), q, StringComparison.OrdinalIgnoreCase)) return;
                         if (exeBox.Text.Trim().Length == 0)
                         {
+                            // Custom name: keep the typed display name, guess an exe
+                            // so it can be queued/started right away. The mimic
+                            // window will show the custom name.
+                            string guessed = GameDb.ExeForGame(q);
+                            exeBox.Text = guessed;
+                            sourceLabel.Text = "Source: custom  ·  " + q;
                             status.ForeColor = Color.OrangeRed;
-                            status.Text = "No match anywhere. Exe guessed — if Discord doesn't detect it, add the .exe manually once.";
+                            status.Text = "Custom name — the window will show \"" + q + "\" running as " + guessed + ".";
                         }
                     }));
                     return;
@@ -737,6 +963,8 @@ namespace Orhex
                 string canonical = res[0][0];
                 this.BeginInvoke(new Action(delegate()
                 {
+                    // Skip if the user already queued/cleared this entry.
+                    if (!string.Equals(nameBox.Text.Trim(), q, StringComparison.OrdinalIgnoreCase)) return;
                     if (nameBox.Text.Trim().Length == 0) nameBox.Text = canonical;
                     if (exeBox.Text.Trim().Length == 0)
                     {
@@ -782,18 +1010,179 @@ namespace Orhex
                 run.Add(new QueueItem(name, duration, exe.Length > 0 ? exe : null, null, true));
             }
             status.ForeColor = Color.Green;
-            status.Text = "Launching " + run.Count + " game(s) — each runs in its own window. Main window stays open.";
-            int launched = 0;
+            status.Text = "Starting " + run.Count + " game(s) — resolving exes, Steam manifests, holders...";
+            Application.DoEvents();
+            // Phase 1: resolve every queued game first, so we can pass the FULL
+            // queue to each child. Previously each child got a single-item queue,
+            // so every MimicForm pushed its own RPC activity independently and
+            // Discord only counted/shown one game (quests/Orbs progress stuck at 1).
+            var resolved = new List<QueueItem>();
+            var steamTargets = new List<string>();
+            var resolvedGames = new List<DiscordGame>();
             foreach (QueueItem qi in run)
             {
-                try { MimicForm f = new MimicForm(new List<QueueItem> { qi }, 0); f.Show(); launched++; }
-                catch (Exception ex) { MessageBox.Show("Couldn't start " + qi.Name + ": " + ex.Message, Program.AppName); }
+                try
+                {
+                    DiscordGame g = null;
+                    if (DiscordDb.EnsureLoaded())
+                        g = DiscordDb.FindGame(qi.Name) ?? DiscordDb.FindGame(qi.EffectiveExe);
+                    string primaryExe = (g != null && !string.IsNullOrEmpty(g.Exe)) ? g.Exe : qi.EffectiveExe;
+                    if (MimicEngine.IsAlreadyRunning(primaryExe))
+                    {
+                        status.ForeColor = Color.OrangeRed;
+                        status.Text = qi.Name + " is already running — skipped.";
+                        continue;
+                    }
+
+                    string manifest = null;
+                    string steamTarget = null;
+                    try
+                    {
+                        status.Text = "Resolving Steam info for " + qi.Name + "...";
+                        Application.DoEvents();
+                        List<string[]> sres = OnlineSearch.Search(qi.Name);
+                        if (sres.Count > 0)
+                        {
+                            long sid = 0;
+                            if (long.TryParse(sres[0][1], out sid))
+                            {
+                                SteamAppInfo info = SteamQuest.FetchAppInfo(sid);
+                                string sPath = SteamQuest.GetSteamPath();
+                                if (!string.IsNullOrEmpty(info.Name) && !string.IsNullOrEmpty(info.Executable) &&
+                                    !string.IsNullOrEmpty(sPath) && Directory.Exists(Path.Combine(sPath, "steamapps")))
+                                {
+                                    manifest = SteamQuest.GenerateManifest(sPath, sid, info.Name, info.InstallDir, info.DepotId, SteamQuest.GetOwnerId64());
+                                    if (manifest != null)
+                                    {
+                                        steamTarget = Path.Combine(sPath, "steamapps", "common", info.InstallDir, info.Executable);
+                                        string sdir = Path.GetDirectoryName(steamTarget);
+                                        if (sdir != null) Directory.CreateDirectory(sdir);
+                                        try { File.Copy(Program.OwnExe, steamTarget, true); }
+                                        catch { steamTarget = null; manifest = null; }
+                                        if (steamTarget != null)
+                                        {
+                                            RecordSteamFake(steamTarget);
+                                            try { File.WriteAllText(Path.Combine(sdir, "steam_appid.txt"), sid.ToString()); }
+                                            catch { }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { manifest = null; steamTarget = null; }
+
+                    string finalExe = steamTarget != null ? Path.GetFileName(steamTarget) : primaryExe;
+                    resolved.Add(new QueueItem(qi.Name, qi.DurationSeconds, finalExe, manifest, true));
+                    steamTargets.Add(steamTarget);
+                    resolvedGames.Add(g);
+                }
+                catch (Exception ex) { MessageBox.Show("Couldn't resolve " + qi.Name + ": " + ex.Message, Program.AppName); }
+            }
+            if (resolved.Count == 0) return;
+            // Every child receives the full queue + its own index, so each
+            // MimicForm knows "game X of N" and they can take turns in Discord
+            // (only one active presence at a time) instead of fighting.
+            string fullArg = Program.SerializeQueue(resolved);
+            int launched = 0;
+            int holders = 0;
+            for (int k = 0; k < resolved.Count; k++)
+            {
+                try
+                {
+                    string steamTarget = steamTargets[k];
+                    if (steamTarget != null)
+                    {
+                        if (MimicEngine.IsAlreadyRunning(Path.GetFileName(steamTarget)))
+                        {
+                            try { File.Delete(resolved[k].Manifest); } catch { }
+                            ForgetSteamFake(steamTarget);
+                        }
+                        else
+                        {
+                            MimicEngine.LaunchNoExit(steamTarget, fullArg, k);
+                            launched++;
+                        }
+                    }
+                    else
+                    {
+                        if (MimicEngine.IsAlreadyRunning(resolved[k].EffectiveExe))
+                        {
+                            status.ForeColor = Color.OrangeRed;
+                            status.Text = resolved[k].Name + " is already running — skipped.";
+                            continue;
+                        }
+                        MimicEngine.SpawnAs(resolved[k].EffectiveExe, fullArg, k);
+                        launched++;
+                    }
+                }
+                catch (Exception ex) { MessageBox.Show("Couldn't start " + resolved[k].Name + ": " + ex.Message, Program.AppName); }
+            }
+            for (int k = 0; k < resolved.Count; k++)
+            {
+                DiscordGame g = resolvedGames[k];
+                if (g != null)
+                {
+                    foreach (string extra in DiscordDb.GetExtraExes(g))
+                    {
+                        if (MimicEngine.IsAlreadyRunning(extra)) continue;
+                        try
+                        {
+                            var hqi = new QueueItem(resolved[k].Name, resolved[k].DurationSeconds, extra, null, true);
+                            MimicEngine.SpawnHidden(extra, Program.SerializeQueue(new List<QueueItem> { hqi }));
+                            holders++;
+                        }
+                        catch { }
+                    }
+                }
             }
             if (launched > 0)
             {
                 status.ForeColor = Color.Green;
-                status.Text = launched + " game(s) running — Discord shows you playing them. Close each window to stop.";
+                if (launched > 1)
+                    status.Text = launched + " game(s) + " + holders + " helper(s) running — Discord cycles through them (~30s each) so all quests/Orbs progress together. Close each window to stop.";
+                else
+                    status.Text = launched + " game(s) + " + holders + " helper(s) running — Discord detects them. Close each window to stop.";
             }
+        }
+
+        private string SteamFakesFile
+        {
+            get
+            {
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Orhex");
+                return Path.Combine(dir, "steam_fakes.dat");
+            }
+        }
+
+        private void RecordSteamFake(string path)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(SteamFakesFile);
+                if (dir != null) Directory.CreateDirectory(dir);
+                string cur = File.Exists(SteamFakesFile) ? File.ReadAllText(SteamFakesFile) : "";
+                if (cur.IndexOf(path, StringComparison.OrdinalIgnoreCase) < 0)
+                    File.AppendAllText(SteamFakesFile, path + "\n");
+            }
+            catch { }
+        }
+
+        private void ForgetSteamFake(string path)
+        {
+            try
+            {
+                if (!File.Exists(SteamFakesFile)) return;
+                var kept = new List<string>();
+                foreach (string line in File.ReadAllLines(SteamFakesFile))
+                {
+                    string t = line.Trim();
+                    if (t.Length == 0) continue;
+                    if (!t.Equals(path, StringComparison.OrdinalIgnoreCase)) kept.Add(t);
+                }
+                File.WriteAllLines(SteamFakesFile, kept.ToArray());
+            }
+            catch { }
         }
     }
 
@@ -808,11 +1197,28 @@ namespace Orhex
         private readonly Label countdownLabel = new Label();
         private readonly DiscordRpc rpc = new DiscordRpc();
         private NotifyIcon tray;
+        private Mutex instanceMutex;
+        // Discord only honours ONE active presence at a time, so parallel
+        // MimicForms take turns (wall-clock slots, no IPC needed). Each window
+        // knows the full queue + its own index (see StartQueue fullArg).
+        private const int RotateSeconds = 30;
+        private DateTime lastPushUtc = DateTime.MinValue;
+        private bool slotActive = true;
+        private bool recognized = true;
 
         public MimicForm(List<QueueItem> items, int index)
         {
             this.items = items;
             this.index = Math.Max(0, Math.Min(index, items.Count - 1));
+
+            string exeName = Path.GetFileName(Program.OwnExe);
+            bool createdNew;
+            instanceMutex = new Mutex(true, "Orhex_" + exeName.ToLowerInvariant(), out createdNew);
+            if (!createdNew)
+            {
+                MessageBox.Show("This game is already being mimicked by another window. Use that window instead.", Program.AppName);
+                Environment.Exit(0);
+            }
 
             ClientSize = new Size(460, 300);
             StartPosition = FormStartPosition.CenterScreen;
@@ -869,6 +1275,14 @@ namespace Orhex
                 tick.Dispose();
                 rpc.Close();
                 if (tray != null) { tray.Visible = false; tray.Dispose(); tray = null; }
+                if (instanceMutex != null)
+                {
+                    try { instanceMutex.ReleaseMutex(); } catch { }
+                    instanceMutex.Close();
+                    instanceMutex = null;
+                }
+                CleanupTempCopy();
+                CleanupSteamFake();
             };
         }
 
@@ -879,14 +1293,80 @@ namespace Orhex
             QueueItem cur = items[index];
             Text = cur.Name + " — " + Program.AppName;
             nameLabel.Text = cur.Name;
-            if (items.Count > 1)
-                progressLabel.Text = "Queue game " + (index + 1) + " of " + items.Count + "  ·  running as " + cur.EffectiveExe;
-            else
-                progressLabel.Text = "Running as " + cur.EffectiveExe;
             remaining = cur.DurationSeconds > 0 ? cur.DurationSeconds : -1;
+            recognized = IsRecognized(cur);
             UpdateCountdown();
             UpdateTray();
-            UpdatePresence();
+            UpdateSlot(true);
+        }
+
+        private static bool IsRecognized(QueueItem cur)
+        {
+            try
+            {
+                if (!DiscordDb.EnsureLoaded()) return true; // unknown yet, don't warn
+                if (DiscordDb.FindApplicationId(cur.Name) != null) return true;
+                if (DiscordDb.FindApplicationId(cur.EffectiveExe) != null) return true;
+                return false;
+            }
+            catch { return true; }
+        }
+
+        private int ActiveIndex()
+        {
+            if (items.Count <= 1) return 0;
+            long secs = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+            return (int)((secs / RotateSeconds) % items.Count);
+        }
+
+        private void UpdateSlot(bool force)
+        {
+            if (items.Count <= 1)
+            {
+                slotActive = true;
+                // Re-push periodically so a Discord restart doesn't kill presence.
+                if (force || !rpc.IsConnected || (DateTime.UtcNow - lastPushUtc).TotalSeconds >= 60)
+                {
+                    UpdatePresence();
+                    lastPushUtc = DateTime.UtcNow;
+                }
+                UpdateSlotLabel();
+                return;
+            }
+            int active = ActiveIndex();
+            bool shouldBeActive = (active == index);
+            if (shouldBeActive)
+            {
+                if (!recognized && DiscordDb.EnsureLoaded())
+                    recognized = IsRecognized(items[index]);
+                if (force || !rpc.IsConnected || (DateTime.UtcNow - lastPushUtc).TotalSeconds >= 25)
+                {
+                    UpdatePresence();
+                    lastPushUtc = DateTime.UtcNow;
+                }
+                slotActive = true;
+            }
+            else
+            {
+                if (rpc.IsConnected) rpc.Close();
+                slotActive = false;
+            }
+            UpdateSlotLabel();
+        }
+
+        private void UpdateSlotLabel()
+        {
+            QueueItem cur = items[index];
+            string baseText;
+            if (items.Count > 1)
+                baseText = "Queue game " + (index + 1) + " of " + items.Count + "  ·  running as " + cur.EffectiveExe;
+            else
+                baseText = "Running as " + cur.EffectiveExe;
+            if (!recognized)
+                baseText += "  ·  ⚠ not in Discord's game list — quests won't progress";
+            else if (items.Count > 1)
+                baseText += slotActive ? "  ·  ● active in Discord" : "  ·  ○ waiting (active: game " + (ActiveIndex() + 1) + ")";
+            progressLabel.Text = baseText;
         }
 
         private void UpdatePresence()
@@ -929,7 +1409,13 @@ namespace Orhex
 
         private void Tick()
         {
-            if (remaining < 0) return;
+            if (remaining < 0)
+            {
+                // No time limit: no countdown, but still rotate presence slots.
+                UpdateSlot(false);
+                UpdateTray();
+                return;
+            }
             remaining--;
             if (remaining <= 0)
             {
@@ -940,9 +1426,114 @@ namespace Orhex
             else
             {
                 UpdateCountdown();
+                UpdateSlot(false);
                 UpdateTray();
             }
         }
+
+        private void CleanupTempCopy()
+        {
+            try
+            {
+                string exe = Program.OwnExe;
+                string tempRoot = Path.Combine(Path.GetTempPath(), "Orhex");
+                if (string.IsNullOrEmpty(exe) || string.IsNullOrEmpty(tempRoot)) return;
+                if (!exe.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase)) return;
+                try { File.Delete(exe); }
+                catch { }
+            }
+            catch { }
+        }
+
+        private void CleanupSteamFake()
+        {
+            try
+            {
+                if (index < 0 || index >= items.Count) return;
+                string manifest = items[index].Manifest;
+                if (!string.IsNullOrEmpty(manifest))
+                {
+                    try { File.Delete(manifest); }
+                    catch { }
+                }
+                try
+                {
+                    string ownDir = Path.GetDirectoryName(Program.OwnExe);
+                    if (!string.IsNullOrEmpty(ownDir))
+                    {
+                        string appidFile = Path.Combine(ownDir, "steam_appid.txt");
+                        if (File.Exists(appidFile))
+                        {
+                            try { File.Delete(appidFile); }
+                            catch { }
+                        }
+                    }
+                }
+                catch { }
+                string fakesFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Orhex", "steam_fakes.dat");
+                if (File.Exists(fakesFile))
+                {
+                    string own = Program.OwnExe;
+                    var kept = new List<string>();
+                    foreach (string line in File.ReadAllLines(fakesFile))
+                    {
+                        string t = line.Trim();
+                        if (t.Length == 0) continue;
+                        if (!t.Equals(own, StringComparison.OrdinalIgnoreCase)) kept.Add(t);
+                    }
+                    File.WriteAllLines(fakesFile, kept.ToArray());
+                }
+            }
+            catch { }
+        }
     }
 
+    internal class ListPickerDialog : Form
+    {
+        public string[] Selected;
+        private readonly ListBox list;
+        private readonly List<string[]> items;
+
+        public static string[] Show(List<string[]> items, string title, Form owner)
+        {
+            ListPickerDialog dlg = new ListPickerDialog(items, title);
+            dlg.ShowDialog(owner);
+            return dlg.Selected;
+        }
+
+        private ListPickerDialog(List<string[]> items, string title)
+        {
+            this.items = items;
+            Text = title;
+            ClientSize = new Size(400, 320);
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MinimizeBox = false;
+            MaximizeBox = false;
+
+            list = new ListBox();
+            list.Bounds = new Rectangle(10, 10, 380, 250);
+            list.Font = new Font("Segoe UI", 9);
+            foreach (string[] it in items)
+                list.Items.Add(it[0] + "  (" + it[1] + ")");
+            if (list.Items.Count > 0) list.SelectedIndex = 0;
+            list.DoubleClick += delegate { Accept(); };
+
+            Button ok = new Button { Text = "Select", Bounds = new Rectangle(10, 272, 100, 30) };
+            ok.Click += delegate { Accept(); };
+            Button cancel = new Button { Text = "Cancel", Bounds = new Rectangle(120, 272, 90, 30) };
+            cancel.Click += delegate { Close(); };
+
+            Controls.Add(list);
+            Controls.Add(ok);
+            Controls.Add(cancel);
+        }
+
+        private void Accept()
+        {
+            if (list.SelectedIndex >= 0 && list.SelectedIndex < items.Count)
+                Selected = items[list.SelectedIndex];
+            Close();
+        }
+    }
 }

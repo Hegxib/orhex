@@ -29,7 +29,7 @@ Orhex makes Discord think you're playing any game — without installing it. Sea
 
 No client mods. No injection. No game files touched. Just Rich Presence over Discord's local IPC pipe.
 
-> **1.0** — clean white UI • 15m 40s default timer • queue runs all at once in separate windows.
+> **1.1** — clean white UI • 15m 40s default timer • queue runs all at once in separate windows • Enter = search, Enter again = add • custom names allowed • queued games take turns in Discord (~30s each) so all quest/Orbs progress bars advance.
 
 <p align="center"><img src="assets/discnot.png" alt="Orhex screenshot" width="720" /></p>
 
@@ -39,6 +39,9 @@ No client mods. No injection. No game files touched. Just Rich Presence over Dis
 - **Real exe names** — curated `GameDb` + local scan + `PickBestExe` (junk filtering, launcher penalty, name-match bonus)
 - **Rich Presence (IPC)** — `discord-ipc-0…9`, 8-byte header, nonce, PING/PONG keepalive
 - **Queue that runs together** — `MainForm` stays open, each queued game opens its own `MimicForm`/`NotifyIcon` with independent countdown
+- **Shared presence slot** — Discord only honours one active presence, so queued windows take turns (~30s each, wall-clock slots, no IPC between them) instead of fighting; every quest/Orbs progress bar advances
+- **Fast entry** — type a name, hit **Enter** to search, hit **Enter** again to add it to the queue and clear the boxes for the next one
+- **Custom names** — any typed name is kept as the display name (queue list + mimic window); the exe is only used for detection. Unknown names get a guessed exe so they can be queued right away
 - **No time limit** supported
 - **Persisted queue** — saved to `%LOCALAPPDATA%\Orhex\queue.dat`
 
@@ -48,10 +51,10 @@ Grab `orhex.exe` from [**Releases**](https://github.com/Hegxib/orhex/releases) �
 
 ### Usage
 
-1. Type a game name → **Search**
+1. Type a game name → **Enter** (searches)
 2. Check the resolved **Executable** (editable) and **Time** (`15m 40s` default)
-3. **+ Add to Queue** — reorder with `▲ ▼`, remove with `✕`/`Remove`
-4. **▶ START MIMICKING** — every queued game starts in its own window; Discord shows you playing them. Close each window to stop.
+3. Hit **Enter** again (or **+ Add to Queue**) — the game is queued and the boxes clear for the next one; reorder with `▲ ▼`, remove with `✕`/`Remove`
+4. **▶ START MIMICKING** — every queued game starts in its own window and they take turns in Discord (~30s each), so all quests/Orbs progress together. Close each window to stop.
 
 Single-game tip: just type a name and hit **Start** without adding to the queue.
 
@@ -71,6 +74,7 @@ Presence:    DiscordDb.FindApplicationId(name) → FindApplicationId(exe) → Di
 Orhex makes **no silent network calls** except:
 
 - `https://discord.com/api/v10/applications/detectable` — official detectable-games list (names, exe names, app IDs)
+- `https://discord.com/api/v10/games/detectable/exclusions` — exes Discord tells clients to ignore (same headers, cached locally)
 - `https://gist.githubusercontent.com/Cynosphere/.../gameslist.json` — backup mirror
 - `https://store.steampowered.com/api/storesearch` — only when **Search** finds no local/Discord match
 - `\\.\pipe\discord-ipc-*` — local Rich Presence only (no network)
@@ -92,7 +96,16 @@ powershell -ExecutionPolicy Bypass -File build\build.ps1 -SkipSign
 
 Requirements: `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`, `System.Windows.Forms`, `System.Drawing`, `System.Core`.
 
-Output: `orhex.exe` (icon `build/exe_icon.ico`, manifest `build/app.manifest`, version `1.0`).
+Output: `orhex.exe` (icon `build/exe_icon.ico`, manifest `build/app.manifest`, version `1.1`).
+
+### Verify / security check
+
+The repo is source-only — `orhex.exe` is gitignored and ships via [Releases](https://github.com/Hegxib/orhex/releases). To audit:
+
+1. Read the four `.cs` files above (no NuGet, no external libs, no obfuscation).
+2. Check `Help → About` in the app — it lists every network endpoint the tool uses (same list as above).
+3. Rebuild yourself and compare behavior: `powershell -ExecutionPolicy Bypass -File build\build.ps1 -SkipSign` (needs `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`).
+4. No token, account, or credential is ever read, stored, or sent anywhere — the only local IPC is `\\.\pipe\discord-ipc-*`.
 
 ### Project layout
 
@@ -100,7 +113,8 @@ Output: `orhex.exe` (icon `build/exe_icon.ico`, manifest `build/app.manifest`, v
 Orhex.cs          # Program, QueueItem, GameDb, MainForm, MimicForm
 GameResolve.cs    # Json, GameScanner, OnlineSearch, DiscordDb
 DiscordRpc.cs     # IPC Rich Presence client
-build/            # build.ps1, sign.ps1, AssemblyInfo.cs (1.0), icons, manifest
+SteamQuest.cs     # Steam store/appinfo lookup + manifest generation
+build/            # build.ps1, sign.ps1, AssemblyInfo.cs (1.1), icons, manifest
 assets/           # screenshots
 ```
 
@@ -117,4 +131,4 @@ Educational / research tool. Use at your own risk and in compliance with Discord
 
 ---
 
-<p align="center"><sub>Orhex 1.0 · by Hegxib</sub></p>
+<p align="center"><sub>Orhex 1.1 · by Hegxib</sub></p>
