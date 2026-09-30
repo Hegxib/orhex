@@ -59,7 +59,7 @@ namespace Orhex
                 string url = "https://api.steamcmd.net/v1/info/" + appid.ToString(CultureInfo.InvariantCulture);
                 var req = (HttpWebRequest)WebRequest.Create(url);
                 req.Timeout = 10000;
-                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Orhex/1.0";
+                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Orhex/1.2";
                 string json;
                 using (var resp = (HttpWebResponse)req.GetResponse())
                 using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))

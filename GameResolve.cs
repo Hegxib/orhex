@@ -384,7 +384,7 @@ namespace Orhex
                              Uri.EscapeDataString(query) + "&cc=US&l=en";
                 var req = (HttpWebRequest)WebRequest.Create(url);
                 req.Timeout = 12000;
-                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Orhex/1.0";
+                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Orhex/1.2";
                 using (var resp = (HttpWebResponse)req.GetResponse())
                 using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
                 {

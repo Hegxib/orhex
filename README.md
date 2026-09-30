@@ -29,7 +29,7 @@ Orhex makes Discord think you're playing any game — without installing it. Sea
 
 No client mods. No injection. No game files touched. Just Rich Presence over Discord's local IPC pipe.
 
-> **1.1** — clean white UI • 15m 40s default timer • queue runs all at once in separate windows • Enter = search, Enter again = add • custom names allowed • queued games take turns in Discord (~30s each) so all quest/Orbs progress bars advance.
+> **1.2** — clean white UI • 15m 40s default timer • queue runs all at once in separate windows • Enter = search, Enter again = add • custom names allowed • queued games take turns in Discord (~30s each) so all quest/Orbs progress bars advance.
 
 <p align="center"><img src="assets/discnot.png" alt="Orhex screenshot" width="720" /></p>
 
@@ -96,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File build\build.ps1 -SkipSign
 
 Requirements: `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`, `System.Windows.Forms`, `System.Drawing`, `System.Core`.
 
-Output: `orhex.exe` (icon `build/exe_icon.ico`, manifest `build/app.manifest`, version `1.1`).
+Output: `orhex.exe` (icon `build/exe_icon.ico`, manifest `build/app.manifest`, version `1.2`).
 
 ### Verify / security check
 
@@ -114,7 +114,7 @@ Orhex.cs          # Program, QueueItem, GameDb, MainForm, MimicForm
 GameResolve.cs    # Json, GameScanner, OnlineSearch, DiscordDb
 DiscordRpc.cs     # IPC Rich Presence client
 SteamQuest.cs     # Steam store/appinfo lookup + manifest generation
-build/            # build.ps1, sign.ps1, AssemblyInfo.cs (1.1), icons, manifest
+build/            # build.ps1, sign.ps1, AssemblyInfo.cs (1.2), icons, manifest
 assets/           # screenshots
 ```
 
@@ -131,4 +131,4 @@ Educational / research tool. Use at your own risk and in compliance with Discord
 
 ---
 
-<p align="center"><sub>Orhex 1.1 · by Hegxib</sub></p>
+<p align="center"><sub>Orhex 1.2 · by Hegxib</sub></p>
